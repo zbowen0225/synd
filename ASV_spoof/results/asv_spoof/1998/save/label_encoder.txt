@@ -1,0 +1,4 @@
+'spoof' => 0
+'bonafide' => 1
+================
+'starting_index' => 0

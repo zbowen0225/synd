@@ -1,0 +1,144 @@
+# Generated 2021-09-24 from:
+# /home/bowen/workdir/syndetect/ASV_spoof/train.yaml
+# yamllint disable
+# #################################
+# Basic training parameters for speaker-id. We have first a network that
+# computes some embeddings. On the top of that, we employ a classifier.
+#
+# Author:
+#  * Mirco Ravanelli 2021
+# #################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1998
+__set_seed: !!python/object/apply:torch.manual_seed [1998]
+
+# If you plan to train a system on an HPC cluster with a big dataset,
+# we strongly suggest doing the following:
+# 1- Compress the dataset in a single tar or zip file.
+# 2- Copy your dataset locally (i.e., the local disk of the computing node).
+# 3- Uncompress the dataset in the local folder.
+# 4- Set data_folder with the local path.
+# Reading data from the local disk of the compute node (e.g. $SLURM_TMPDIR with SLURM-based clusters) is very important.
+# It allows you to read the data much faster without slowing down the shared filesystem.
+data_folder: /home/bowen/data/ASVspoof2019_root/LA/
+# output_folder: !ref /home/bowen/data/spoof_results/asv_spoof/<seed>
+output_folder: ./results/asv_spoof/1998
+save_folder: ./results/asv_spoof/1998/save
+train_log: ./results/asv_spoof/1998/train_log.txt
+
+# Path where data manifest files will be stored
+# The data manifest files are created by the data preparation script.
+train_annotation: train.json
+dev_annotation: dev.json
+eval_annotation: eval.json
+
+# The train logger writes training statistics to a file, as well as stdout.
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+  save_file: ./results/asv_spoof/1998/train_log.txt
+
+# error_stats: !name:speechbrain.utils.metric_stats.MetricStats
+#     metric: !name:speechbrain.nnet.losses.classification_error
+#         reduction: batch
+error_stats: !name:speechbrain.utils.metric_stats.BinaryMetricStats
+
+ckpt_interval_minutes: 15 # save checkpoint every N min
+
+# Feature parameters
+n_mels: 23
+
+# Training Parameters
+sample_rate: 16000
+number_of_epochs: 15
+batch_size: 16
+lr_start: 0.001
+lr_final: 0.0001
+n_classes: 2 # In this case, we have 28 speakers
+emb_dim: 512 # dimensionality of the embeddings
+dataloader_options:
+  batch_size: 16
+
+
+# Added noise and reverb come from OpenRIR dataset, automatically
+# downloaded and prepared with this Environmental Corruption class.
+env_corrupt: &id002 !new:speechbrain.lobes.augment.EnvCorrupt
+  openrir_folder: /home/bowen/data/ASVspoof2019_root/LA/
+  babble_prob: 0.0
+  reverb_prob: 0.0
+  noise_prob: 1.0
+  noise_snr_low: 0
+  noise_snr_high: 15
+
+# Adds speech change + time and frequency dropouts (time-domain implementation)
+# # A small speed change help to improve the performance of speaker-id as well.
+augmentation: &id003 !new:speechbrain.lobes.augment.TimeDomainSpecAugment
+  sample_rate: 16000
+  speeds: [95, 100, 105]
+
+# Feature extraction
+compute_features: &id001 !new:speechbrain.lobes.features.Fbank
+  n_mels: 23
+
+# Mean and std normalization of the input features
+mean_var_norm: &id006 !new:speechbrain.processing.features.InputNormalization
+
+# This optimizer will be constructed by the Brain class after all parameters
+# are moved to the correct device. Then it will be added to the checkpointer.
+  norm_type: sentence
+  std_norm: false
+
+# To design a custom model, either just edit the simple CustomModel
+# class that's listed here, or replace this `!new` call with a line
+# pointing to a different file you've defined.
+embedding_model: &id004 !new:custom_model.Xvector
+  in_channels: 23
+  activation: !name:torch.nn.LeakyReLU
+  tdnn_blocks: 5
+  tdnn_channels: [512, 512, 512, 512, 1500]
+  tdnn_kernel_sizes: [5, 3, 3, 1, 1]
+  tdnn_dilations: [1, 2, 3, 1, 1]
+  lin_neurons: 512
+
+classifier: &id005 !new:custom_model.Classifier
+  input_shape: [null, null, 512]
+  activation: !name:torch.nn.LeakyReLU
+  lin_blocks: 1
+  lin_neurons: 512
+  out_neurons: 2
+
+# The first object passed to the Brain class is this "Epoch Counter"
+# which is saved by the Checkpointer so that training can be resumed
+# if it gets interrupted at any point.
+epoch_counter: &id007 !new:speechbrain.utils.epoch_loop.EpochCounter
+  limit: 15
+
+# Objects in "modules" dict will have their parameters moved to the correct
+# device, as well as having train()/eval() called on them by the Brain class.
+modules:
+  compute_features: *id001
+  env_corrupt: *id002
+  augmentation: *id003
+  embedding_model: *id004
+  classifier: *id005
+  mean_var_norm: *id006
+opt_class: !name:torch.optim.Adam
+  lr: 0.001
+
+# This function manages learning rate annealing over the epochs.
+# We here use the simple lr annealing method that linearly decreases
+# the lr from the initial value to the final one.
+lr_annealing: !new:speechbrain.nnet.schedulers.LinearScheduler
+  initial_value: 0.001
+  final_value: 0.0001
+  epoch_count: 15
+
+# This object is used for saving the state of training both so that it
+# can be resumed if it gets interrupted, and also so that the best checkpoint
+# can be later loaded for evaluation or inference.
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+  checkpoints_dir: ./results/asv_spoof/1998/save
+  recoverables:
+    embedding_model: *id004
+    classifier: *id005
+    normalizer: *id006
+    counter: *id007
