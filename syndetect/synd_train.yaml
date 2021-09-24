@@ -1,0 +1,85 @@
+# ##################################################
+# Model: Synthesized Speech Detection Baseline
+# Embeddings: Deep embedding
+# Clustering Technique: Spectral clustering
+# #################################################
+
+seed: 1234
+__set_seed: !apply:torch.manual_seed [!ref <seed>]
+
+# Folders
+data_folder: /home/bowen/data/SynDetect_gutenburg/
+save_folder: /home/bowen/data/results/save/
+output_folder: /home/bowen/data/results/sd_ecapa_tdnn/
+train_log: !ref <output_folder>/train_log.txt
+device: 'cuda:0'
+
+# Embedding model
+# Here, the pretrained embedding model trained with train_speaker_embeddings.py hparams/train_ecapa_tdnn.yaml
+# is downloaded from the speechbrain HuggingFace repository.
+# However, a local path pointing to a directory containing your checkpoints may also be specified
+# instead (see pretrainer below)
+pretrain_path: speechbrain/spkrec-ecapa-voxceleb
+
+# Some more exp folders (for cleaner structure)
+embedding_dir: !ref <save_folder>/emb
+csv_dir: !ref <save_folder>/csv
+ref_rttm_dir: !ref <save_folder>/ref_rttms
+sys_rttm_dir: !ref <save_folder>/sys_rttms
+der_dir: !ref <save_folder>/DER
+
+# Synd: csv files
+csv_diary_dev: !ref <csv_dir>/synd_dev.subsegments.csv
+csv_diary_test: !ref <csv_dir>/synd_test.subsegments.csv
+
+# Spectral feature parameters
+n_mels: 80
+left_frames: 0
+right_frames: 0
+deltas: False
+
+# Xvector model
+emb_dim: 192
+batch_size: 512
+
+# Synd data_prep parameters
+max_subseg_dur: 1
+overlap: 0.5
+
+# Spectral Clustering parameters
+affinity: 'nn'  # use 'cos' for cosine affinity
+max_num_spkrs: 32
+oracle_n_spkrs: True
+
+# DER evaluation parameters
+ignore_overlap: True
+forgiveness_collar: 0.25
+
+dataloader_opts:
+    batch_size: !ref <batch_size>
+
+compute_features: !new:speechbrain.lobes.features.Fbank
+    n_mels: !ref <n_mels>
+
+mean_var_norm: !new:speechbrain.processing.features.InputNormalization
+    norm_type: sentence
+    std_norm: False
+
+embedding_model: !new:speechbrain.lobes.models.ECAPA_TDNN.ECAPA_TDNN
+    input_size: !ref <n_mels>
+    channels: [1024, 1024, 1024, 1024, 3072]
+    kernel_sizes: [5, 3, 3, 3, 1]
+    dilations: [1, 2, 3, 4, 1]
+    attention_channels: 128
+    lin_neurons: 192
+
+mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+    std_norm: False
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+    collect_in: !ref <save_folder>
+    loadables:
+        embedding_model: !ref <embedding_model>
+    paths:
+        embedding_model: !ref <pretrain_path>/embedding_model.ckpt
